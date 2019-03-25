@@ -48,6 +48,44 @@ def RefillAccount(username, refill_amount):
         }
     })
 
+def ChargeAccount(username):
+    current_count = CountTokens(username)
+    new_count = current_count-1
+    users.update({
+        "Username": username
+    },{
+        "$set": {
+            "Tokens": new_count
+        }
+    })
+
+def verifyPassword(username, password):
+    if not UserExist(username):
+        return False
+    hashed_pw = users.find({
+        "Username": username
+    })[0]["Password"]
+
+    if bcrypt.hashpw(password.encode('utf8'), hashed_pw)==hashed_pw:
+        return True
+    else:
+        return False
+
+def generateReturnJson(status, message):
+    retJson = {
+        "status": status,
+        "message": message
+    }
+    return jsonify(retJson)
+
+def VerifyCredentials(username, password):
+    if not UserExist(username):
+        return generateReturnJson(301, "username not found, please register to use this API")
+    correct_pw = verifyPassword(username, password)
+    if not correct_pw:
+        return generateReturnJson(302, "Incorrect password")
+
+    return None, False
 
 
 #Handles the registration of the user
@@ -61,11 +99,7 @@ class Register(Resource):
 
         #if user already exist, tell user to pick a new username
         if UserExist(username):
-            retJson = {
-                "status": 301,
-                "message": "Invalid Username"
-            }
-            return jsonify(retJson)
+            generateReturnJson(301, "Invalid Username")
 
         #hashes pw entered by the user and adds a little salt to it
         hashed_pw = bcrypt.hashpw(password.encode('utf8'), bcrypt.gensalt())
@@ -78,11 +112,7 @@ class Register(Resource):
         })
 
         #prepares and return the message to be displayed once user successfully registers
-        retJson = {
-            "status": 200,
-            "message": "User sucessfully registered"
-        }
-        return jsonify(retJson)
+        generateReturnJson(200, "User Registered to use the API")
 
 
 class Refill(Resource):
@@ -97,19 +127,43 @@ class Refill(Resource):
         correct_pw = "admin123"
 
         if not admin_pw == correct_pw:
-            retJson = {
-                "status": 302,
-                "message": "Invalid admin password"
-            }
-            return jsonify(retJson)
+            generateReturnJson(302, "Invalid Admin Password")
 
         RefillAccount(username, refill_amount)
 
-        retJson = {
-            "status": 200,
-            "message": str(refill_amount) + " tokens added to User Account"
-        }
-        return jsonify(retJson)
+        generateReturnJson(200, str(refill_amount) + " tokens added to User Account")
+
+class Classify(Resource):
+    def post(self):
+
+        postedData = request.get_json()
+
+        username = postedData["username"]
+        password = postedData["password"]
+        url = postedData["url"]
+
+        retJson, error = VerifyCredentials(username, password)
+        if error:
+            return jsonify(retJson)
+
+        tokens = users.find({"Username":username})[0]["Tokens"]
+        if tokens <= 0:
+            return jsonify( generateReturnJson(303, "You don't have enough tokens to use the API"))
+
+        r = requests.get(url)
+        retJson = {}
+        with open("temp.jpg", "wb") as f:
+            f.write(r.content)
+            proc = subprocess.Popen('python classify_image.py --model_dir=. --image_file=./temp.jpg')
+            proc.communicate()[0]
+            proc.wait()
+            with open("text.txt") as g:
+                retJson = json.load(g)
+
+        ChargeAccount(username)
+        return retJson
+
+
 
 
 
