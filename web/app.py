@@ -11,9 +11,6 @@ import requests
 import subprocess
 import json
 
-
-
-
 #define the app and instantiates it as an API
 app = Flask(__name__)
 api = Api(app)
@@ -66,7 +63,7 @@ def verifyPassword(username, password):
         "Username": username
     })[0]["Password"]
 
-    if bcrypt.hashpw(password.encode('utf8'), hashed_pw)==hashed_pw:
+    if bcrypt.hashpw(password.encode('utf8'), hashed_pw) == hashed_pw:
         return True
     else:
         return False
@@ -76,7 +73,7 @@ def generateReturnJson(status, message):
         "status": status,
         "message": message
     }
-    return jsonify(retJson)
+    return retJson
 
 def VerifyCredentials(username, password):
     if not UserExist(username):
@@ -99,7 +96,7 @@ class Register(Resource):
 
         #if user already exist, tell user to pick a new username
         if UserExist(username):
-            generateReturnJson(301, "Invalid Username")
+            return jsonify(generateReturnJson(301, "Invalid Username"))
 
         #hashes pw entered by the user and adds a little salt to it
         hashed_pw = bcrypt.hashpw(password.encode('utf8'), bcrypt.gensalt())
@@ -112,7 +109,7 @@ class Register(Resource):
         })
 
         #prepares and return the message to be displayed once user successfully registers
-        generateReturnJson(200, "User Registered to use the API")
+        return jsonify(generateReturnJson(200, "User Registered to use the API"))
 
 
 class Refill(Resource):
@@ -126,12 +123,15 @@ class Refill(Resource):
 
         correct_pw = "admin123"
 
+        if not UserExist(username):
+            return jsonify(generateReturnJson(301, "Invalid Username"))
+
         if not admin_pw == correct_pw:
-            generateReturnJson(302, "Invalid Admin Password")
+            return jsonify(generateReturnJson(302, "Invalid Admin Password"))
 
         RefillAccount(username, refill_amount)
 
-        generateReturnJson(200, str(refill_amount) + " tokens added to User Account")
+        return jsonify(generateReturnJson(200, str(refill_amount) + " tokens added to User Account"))
 
 class Classify(Resource):
     def post(self):
@@ -142,9 +142,9 @@ class Classify(Resource):
         password = postedData["password"]
         url = postedData["url"]
 
-        retJson, error = VerifyCredentials(username, password)
-        if error:
-            return jsonify(retJson)
+        #retJson, error = VerifyCredentials(username, password)
+        #if error:
+        #    return jsonify(retJson)
 
         tokens = users.find({"Username":username})[0]["Tokens"]
         if tokens <= 0:
@@ -154,25 +154,18 @@ class Classify(Resource):
         retJson = {}
         with open("temp.jpg", "wb") as f:
             f.write(r.content)
-            proc = subprocess.Popen('python classify_image.py --model_dir=. --image_file=./temp.jpg')
+            proc = subprocess.Popen('python classify_image.py --model_dir=. --image_file=./temp.jpg', stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True)
             proc.communicate()[0]
             proc.wait()
-            with open("text.txt") as g:
-                retJson = json.load(g)
+            with open("text.txt") as f:
+                retJson = json.load(f)
 
         ChargeAccount(username)
         return retJson
 
-
-
-
-
-
-
-
 api.add_resource(Register, '/register')
 api.add_resource(Refill, '/refill')
-
+api.add_resource(Classify, '/classify')
 
 if __name__=="__main__":
     app.run('0.0.0.0')
